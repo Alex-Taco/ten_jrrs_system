@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from PySide6.QtCore import QThread, Signal
+from servo_control import ServoControl, ServoThread
+from scservo_sdk import *  # Import SCServo SDK library
 
 class ReactorScheduler:
     def __init__(self, num_reactors, interval, max_power):
@@ -67,8 +69,9 @@ class InterOpThread(QThread):
     efficiency_signal = Signal(float)  # Signal to output the best efficiency
     solar_reactor_signal = Signal(float, list)
 
-    def __init__(self, interval_minutes, csv_file, parent=None):
+    def __init__(self, servo_thread, interval_minutes, csv_file, parent=None):
         super().__init__(parent)
+        self.servo_thread = servo_thread
         self.interval = interval_minutes
         self.solar_data, self.max_power = self.load_solar_data(csv_file, interval_minutes)
 
@@ -83,6 +86,7 @@ class InterOpThread(QThread):
         # Normalize the solar power data with the best x
         self.normalized_power = (self.solar_data / (self.max_power / self.best_x)) * 100
         self.reactor_states = [False for _ in range(10)]  # Initialize reactor states
+        self.servos_positions_loads = {} 
 
     def load_solar_data(self, filepath, interval_minutes):
         """Load and resample solar power data from the CSV file."""
@@ -123,7 +127,6 @@ class InterOpThread(QThread):
 
     def run(self):
         """Main thread loop for intermittent operation."""
-        self.efficiency_signal.emit(self.best_efficiency)  # Send best efficiency to the GUI
         index = 0
         check_interval_ms = 500  # Check every 500 ms to allow responsive stopping
         total_wait_time = 0
@@ -172,6 +175,11 @@ class InterOpThread(QThread):
                 reactors_to_deactivate.append(reactor_index)
 
         # Open the reactors that need to be activated
+        # First step: move target servos to 2047
+        self.servo_thread.io_open_signal.emit([i + 1 for i in reactors_to_activate])
+        # Ensure all servos have reached the target position
+        while 
+
         for reactor_index in reactors_to_activate:
             self.reactor_states[reactor_index] = True
 
@@ -182,6 +190,8 @@ class InterOpThread(QThread):
         # Update the current index for the next round-robin cycle
         self.scheduler.current_index = (self.scheduler.current_index + num_reactors_to_run) % self.scheduler.num_reactors
 
+    def get_servos_positions_loads(self, servo_positions_loads):
+        self.servos_positions_loads = servo_positions_loads
     def stop(self):
         """Stop the thread."""
         self.running = False

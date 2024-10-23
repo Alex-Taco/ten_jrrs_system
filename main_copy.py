@@ -343,6 +343,10 @@ class MainGUI(QWidget):
             servo_layout.addWidget(servo_control_widget, (scs_id - 1) // 2, (scs_id - 1) % 2)
         control_layout.addLayout(servo_layout)
 
+        self.io_openbutton = QPushButton("Open io", self)
+        self.io_openbutton.clicked.connect(self.open)
+        control_layout.addWidget(self.io_openbutton)
+
         # Leak detection indicator
         leak_layout = QHBoxLayout()
         self.leak_label = QLabel("Leak Status: ---", self)
@@ -382,6 +386,9 @@ class MainGUI(QWidget):
 
         # Set the main layout for the window
         self.setLayout(main_layout)
+    
+    def open(self):
+        self.servo_thread.io_open_signal.emit([1,2,3,4])
 
     def update_views(self):
         """Sync the second y-axis with the main plot when resizing occurs."""
@@ -482,14 +489,14 @@ class MainGUI(QWidget):
     def slider_moved(self, servo_id, position):
         self.servo_thread.write_position_signal.emit(servo_id, position)
 
-    def update_servo_info(self, servo_id, pos, speed, temp):
+    def update_servo_info(self, servo_id, pos, speed, temp, load):
         # Update the specific servo's info label and slider
         info_label = self.findChild(QLabel, f"servo_info_{servo_id}")
         position_slider = self.findChild(QSlider, f"servo_slider_{servo_id}")
         switch_button = self.findChild(QPushButton, f"servo_button_{servo_id}")
 
         if info_label and position_slider and switch_button:
-            info_label.setText(f"Servo {servo_id} - Position: {pos}, Speed: {speed}, Temperature: {temp} ℃")
+            info_label.setText(f"Servo {servo_id} - Position: {pos}, Speed: {speed}, Load: {load}, Temperature: {temp} ℃")
             position_slider.blockSignals(True)
             position_slider.setValue(pos)
             position_slider.blockSignals(False)

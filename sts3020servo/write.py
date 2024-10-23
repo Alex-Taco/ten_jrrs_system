@@ -32,11 +32,11 @@ from scservo_sdk import *                 # Uses SCServo SDK library
 
 # Default setting
 SCS_ID                      = 1                 # SCServo ID : 1
-BAUDRATE                    = 115200           # SCServo default baudrate : 1000000
+BAUDRATE                    = 38400           # SCServo default baudrate : 1000000
 DEVICENAME                  = 'COM12'    # Check which port is being used on your controller
                                                 # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
 SCS_MINIMUM_POSITION_VALUE  = 2047           # SCServo will rotate between this value
-SCS_MAXIMUM_POSITION_VALUE  = 3200
+SCS_MAXIMUM_POSITION_VALUE  = 3000
 SCS_MOVING_SPEED            = 50        # SCServo moving speed
 SCS_MOVING_ACC              = 10          # SCServo moving acc
 
@@ -77,6 +77,18 @@ while 1:
 
     # Write SCServo goal position/moving speed/moving acc
     scs_comm_result, scs_error = packetHandler.WritePosEx(SCS_ID, scs_goal_position[index], SCS_MOVING_SPEED, SCS_MOVING_ACC)
+    if scs_comm_result != COMM_SUCCESS:
+        print("%s" % packetHandler.getTxRxResult(scs_comm_result))
+    if scs_error != 0:
+        print("%s" % packetHandler.getRxPacketError(scs_error))
+
+    scs_comm_result, scs_error = packetHandler.WritePosEx(2, scs_goal_position[index], SCS_MOVING_SPEED, SCS_MOVING_ACC)
+    if scs_comm_result != COMM_SUCCESS:
+        print("%s" % packetHandler.getTxRxResult(scs_comm_result))
+    if scs_error != 0:
+        print("%s" % packetHandler.getRxPacketError(scs_error))
+
+    scs_comm_result, scs_error = packetHandler.WritePosEx(3, scs_goal_position[index], SCS_MOVING_SPEED, SCS_MOVING_ACC)
     if scs_comm_result != COMM_SUCCESS:
         print("%s" % packetHandler.getTxRxResult(scs_comm_result))
     if scs_error != 0:
