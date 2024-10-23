@@ -1,67 +1,8 @@
 import pandas as pd
 import numpy as np
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QMutex, QMutexLocker, QTimer
 from servo_control import ServoControl, ServoThread
 from scservo_sdk import *  # Import SCServo SDK library
-
-class ReactorScheduler:
-    def __init__(self, num_reactors, interval, max_power):
-        self.num_reactors = num_reactors
-        self.max_power = max_power  # Maximum available power
-        self.reactor_minutes = [0 for _ in range(num_reactors)]  # Track reactor time in minutes
-        self.current_index = 0
-        self.interval = interval  # Set the interval dynamically
-        self.running_reactors = []  # Store the number of running reactors for each interval
-        self.total_energy_consumed = 0  # Total energy consumed by reactors
-    
-    def get_operational_reactors(self, available_power):
-        """ Adjust the number of reactors to run based on the available power percentage. """
-        if available_power < 10:
-            return 0
-        elif available_power < 20:
-            return 1
-        elif available_power < 30:
-            return 2
-        elif available_power < 40:
-            return 3
-        elif available_power < 50:
-            return 4
-        elif available_power < 60:
-            return 5
-        elif available_power < 70:
-            return 6
-        elif available_power < 80:
-            return 7
-        elif available_power < 90:
-            return 8
-        elif available_power < 100:
-            return 9
-        else:
-            return 10
-    
-    def update_reactor_minutes(self, num_active_reactors):
-        reactor_power_consumption = 0.1 * self.max_power  # Power consumption per reactor
-        energy_consumed = num_active_reactors * reactor_power_consumption * (self.interval / 60)
-        self.total_energy_consumed += energy_consumed  # Add energy consumed
-
-        for i in range(num_active_reactors):
-            reactor_index = (self.current_index + i) % self.num_reactors
-            self.reactor_minutes[reactor_index] += self.interval  # Increment minutes
-        self.current_index = (self.current_index + num_active_reactors) % self.num_reactors
-        self.running_reactors.append(num_active_reactors)  # Track number of reactors
-
-    def schedule_reactors(self, power_readings):
-        """ Schedule reactors based on available power """
-        for available_power in power_readings:
-            num_active_reactors = self.get_operational_reactors(available_power)
-            self.update_reactor_minutes(num_active_reactors)
-
-    def calculate_efficiency(self, total_solar_power):
-        if total_solar_power == 0:
-            return 0
-        efficiency = self.total_energy_consumed / total_solar_power
-        return efficiency
-
 
 class InterOpThread(QThread):
     solar_data_signal = Signal(float)  # Signal to update solar power in GUI
@@ -86,7 +27,8 @@ class InterOpThread(QThread):
         # Normalize the solar power data with the best x
         self.normalized_power = (self.solar_data / (self.max_power / self.best_x)) * 100
         self.reactor_states = [False for _ in range(10)]  # Initialize reactor states
-        self.servos_positions_loads = {} 
+        self.servos_positions_loads = {}
+        self.mutex = QMutex()
 
     def load_solar_data(self, filepath, interval_minutes):
         """Load and resample solar power data from the CSV file."""
@@ -177,8 +119,16 @@ class InterOpThread(QThread):
         # Open the reactors that need to be activated
         # First step: move target servos to 2047
         self.servo_thread.io_open_signal.emit([i + 1 for i in reactors_to_activate])
-        # Ensure all servos have reached the target position
-        while 
+        # Sleep for 6 seconds to allow servos to move and get_servos_positions_loads to run
+        self.msleep(6000)
+        # Ensure all servos have reached the target position, self.servos_positions_loads[reactor_index + 1][0] < 2100
+        while True:
+            with QMutexLocker(self.mutex):
+                # Check if all reactors have servo positions below 2100
+                if all([self.servos_positions_loads[reactor_index + 1][0] < 2100 for reactor_index in reactors_to_activate]):
+                    break  # Exit the loop if all conditions are met
+            self.msleep(100)  # Sleep to allow other slots (like get_servos_positions_loads) to run
+            pass  # Pass statement is not strictly needed but can be left as a placeholder
 
         for reactor_index in reactors_to_activate:
             self.reactor_states[reactor_index] = True
@@ -190,9 +140,72 @@ class InterOpThread(QThread):
         # Update the current index for the next round-robin cycle
         self.scheduler.current_index = (self.scheduler.current_index + num_reactors_to_run) % self.scheduler.num_reactors
 
+    # Slot to receive the servo positions and loads from the servo_thread
     def get_servos_positions_loads(self, servo_positions_loads):
-        self.servos_positions_loads = servo_positions_loads
+        with QMutexLocker(self.mutex):  # Ensure thread safety when updating shared data
+            self.servos_positions_loads = servo_positions_loads
+        
     def stop(self):
         """Stop the thread."""
         self.running = False
         self.wait()
+
+class ReactorScheduler:
+    def __init__(self, num_reactors, interval, max_power):
+        self.num_reactors = num_reactors
+        self.max_power = max_power  # Maximum available power
+        self.reactor_minutes = [0 for _ in range(num_reactors)]  # Track reactor time in minutes
+        self.current_index = 0
+        self.interval = interval  # Set the interval dynamically
+        self.running_reactors = []  # Store the number of running reactors for each interval
+        self.total_energy_consumed = 0  # Total energy consumed by reactors
+    
+    def get_operational_reactors(self, available_power):
+        """ Adjust the number of reactors to run based on the available power percentage. """
+        if available_power < 10:
+            return 0
+        elif available_power < 20:
+            return 1
+        elif available_power < 30:
+            return 2
+        elif available_power < 40:
+            return 3
+        elif available_power < 50:
+            return 4
+        elif available_power < 60:
+            return 5
+        elif available_power < 70:
+            return 6
+        elif available_power < 80:
+            return 7
+        elif available_power < 90:
+            return 8
+        elif available_power < 100:
+            return 9
+        else:
+            return 10
+    
+    def update_reactor_minutes(self, num_active_reactors):
+        reactor_power_consumption = 0.1 * self.max_power  # Power consumption per reactor
+        energy_consumed = num_active_reactors * reactor_power_consumption * (self.interval / 60)
+        self.total_energy_consumed += energy_consumed  # Add energy consumed
+
+        for i in range(num_active_reactors):
+            reactor_index = (self.current_index + i) % self.num_reactors
+            self.reactor_minutes[reactor_index] += self.interval  # Increment minutes
+        self.current_index = (self.current_index + num_active_reactors) % self.num_reactors
+        self.running_reactors.append(num_active_reactors)  # Track number of reactors
+
+    def schedule_reactors(self, power_readings):
+        """ Schedule reactors based on available power """
+        for available_power in power_readings:
+            num_active_reactors = self.get_operational_reactors(available_power)
+            self.update_reactor_minutes(num_active_reactors)
+
+    def calculate_efficiency(self, total_solar_power):
+        if total_solar_power == 0:
+            return 0
+        efficiency = self.total_energy_consumed / total_solar_power
+        return efficiency
+
+
